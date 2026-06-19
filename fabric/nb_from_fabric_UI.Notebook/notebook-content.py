@@ -13,7 +13,7 @@
 
 # Welcome to your new notebook
 # Type here in the cell editor to add code!
-print("hello from Fabric UI")
+print("*** hello from Fabric UI ***")
 
 # METADATA ********************
 
