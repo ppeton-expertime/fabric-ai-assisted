@@ -12,6 +12,7 @@ Développement **assisté** de pipelines Microsoft Fabric **depuis VS Code** : n
 - [Prérequis](#prérequis)
 - [Le processus en bref](#le-processus-en-bref)
 - [Étapes détaillées](#étapes-détaillées)
+- [Orchestration : pipeline planifié](#orchestration--pipeline-planifié)
 - [Conventions de code](#conventions-de-code)
 - [⚠️ Limites & contraintes connues](#️-limites--contraintes-connues)
 - [Reprise de session (check-list)](#reprise-de-session-check-list)
@@ -40,14 +41,16 @@ Développement **assisté** de pipelines Microsoft Fabric **depuis VS Code** : n
 
 ```mermaid
 flowchart TD
-    A["VS Code + extension Fabric"] -->|"édition + Copilot"| N["Notebook (.ipynb)"]
+    UI["Portail Fabric (UI)"] -->|"créer le notebook"| N["Notebook (.ipynb)"]
+    A["VS Code + extension Fabric"] -->|"édition + Copilot"| N
     N -->|"kernel : Microsoft Fabric Runtime"| C["Compute Spark distant (Fabric)"]
     C --> T["Tables Delta (OneLake)"]
     N -->|"commit / push"| GH["Repo GitHub — develop"]
     GH <-->|"Git integration"| WS["Workspace Fabric"]
+    PPL["Data pipeline (planifié)"] -->|"activité Notebook"| N
 ```
 
-> Le notebook est **édité dans VS Code** mais **s'exécute sur le Spark distant Fabric** (kernel *Microsoft Fabric Runtime*). Les **données** vivent dans OneLake (Lakehouse), le **code** est versionné dans GitHub.
+> Le notebook est **créé dans le portail** puis **édité dans VS Code**, et **s'exécute sur le Spark distant Fabric** (kernel *Microsoft Fabric Runtime*). Les **données** vivent dans OneLake (Lakehouse), le **code** est versionné dans GitHub. Un **pipeline planifié** orchestre l'exécution automatique.
 
 ---
 
@@ -67,11 +70,18 @@ git pull
 
 Dans la vue **Fabric Data Engineering** : **Set Local Work Folder** → le clone, puis **Select Workspace**.
 
-### 2. Ouvrir le notebook
+### 2. Créer le notebook **depuis le portail** (recommandé), puis le récupérer dans VS Code
 
-- Cliquer sur l'item **Notebook** → vue cellules.
-- S'il s'ouvre en `.py` brut : clic droit → **Open in Synapse VS Code**.
-- Sélectionner le kernel **Microsoft Fabric Runtime**.
+> ✅ **Bonne pratique** : créer le notebook **dans l'UI Fabric** (plus robuste que la création depuis VS Code, qui peut poser des soucis de matérialisation/VFS).
+
+**Dans le portail :**
+1. Workspace → **New item** → **Notebook** → le **renommer** (ex. `nb_<domaine>`).
+2. Panneau **Lakehouses** → **Add** → ajouter les Lakehouses cibles et **épingler le défaut**. ⚠️ Ces attachements sont **enregistrés dans la définition** du notebook (indispensable pour l'exécution par pipeline planifié).
+3. (Optionnel) coder/coller les premières cellules, **Save**.
+
+**Dans VS Code :**
+4. Vue **Fabric Data Engineering** → **Refresh** (↻) → le notebook apparaît sous **Notebooks**.
+5. **Download** (⬇️) l'item pour le matérialiser en local, puis l'ouvrir en **vue notebook** (kernel **Microsoft Fabric Runtime**). En cas de `.py` brut : clic droit → **Open in Synapse VS Code**.
 
 ### 3. Se connecter aux données (Lakehouse)
 
@@ -110,6 +120,34 @@ git push
 
 ---
 
+## Orchestration : pipeline planifié
+
+> Objectif : exécuter le notebook **automatiquement**, sur planning, **sans VS Code** (le notebook tourne côté Fabric). Le pipeline se crée **dans le portail** (l'authoring + le scheduling sont une expérience portail) et se versionne ensuite via **Git integration**.
+
+### Créer le pipeline
+
+1. Workspace → **New item** → **Data pipeline** → le nommer (ex. `ppl_run_<domaine>`).
+2. Canvas → panneau **Activities** → ajouter une activité **Notebook**.
+3. Sélectionner l'activité → onglet **Settings** → champ **Notebook** = le notebook cible.
+4. (Optionnel) onglet **General** → renommer l'activité (ex. `Run <domaine>`).
+5. Onglet **Home** → **Save**, puis **Run** pour tester (onglet **Output** → statut **Succeeded**).
+
+### Planifier (ex. tous les lundis à 11h)
+
+6. Onglet **Home** → **Schedule** → toggle **On**.
+7. **Frequency** = **Week** → cocher **Monday** → **Time** = **11:00**.
+8. **Time zone** = **(UTC+01:00) … Paris** (gère automatiquement été/hiver). **Apply**.
+9. (Recommandé) renseigner **Failure notifications** (email d'équipe) pour être alerté en cas d'échec d'un run planifié.
+
+### À savoir
+
+- **Prérequis** : le notebook doit avoir ses **Lakehouses attachés + défaut épinglé** enregistrés dans sa définition (sinon le run planifié échoue).
+- **Identité d'exécution** : un run planifié s'exécute **sous l'identité de la personne qui crée/met à jour la planification** → s'assurer qu'elle garde les accès. *(En PROD : privilégier une identité de service / Workspace Identity.)*
+- **Suivi** : menu **Monitor** → historique et runs à venir.
+- **Versionner** le pipeline comme le notebook (Source control → Commit sur `develop`).
+
+---
+
 ## Conventions de code
 
 - **Lakehouse = couche** (Bronze / Silver / Gold) · **Schéma = domaine** (ex. `CITY`).
@@ -144,6 +182,8 @@ SELECT ... FROM CITY.city_safety;
 | **Lakehouse par défaut doit être schema-enabled** | Sinon les schémas ne sont pas accessibles | Garder un Lakehouse **schema-enabled** épinglé (ou aucun) |
 | **Démarrage Spark sur petite capacité (F2)** | *Cold start* de quelques minutes, quotas de sessions concurrentes | Anticiper le délai ; **high concurrency** à plusieurs ; coordonner les exécutions ; monter la capacité si besoin |
 | **Upload de fichier vers `Files/` indisponible depuis VS Code** | — | Faire l'upload **dans le portail** |
+| **Pas de planning mensuel natif** | Fréquences pipeline = minute / heure / jour / **semaine** uniquement | Pour du mensuel : planning hebdo + activité **If** (test du jour), ou déclenchement via API |
+| **Pipeline non éditable visuellement dans VS Code** | L'authoring du canvas + le scheduling se font au **portail** | Créer/planifier au portail ; **versionner** ensuite via Git integration |
 
 ---
 
@@ -182,9 +222,11 @@ SELECT ... FROM CITY.city_safety;
 ```
 fabric-ai-assisted/
 ├── fabric/
-│   └── nb_city_safety.ipynb     # pipeline médaillon de démo (Bronze→Silver→Gold)
-├── .gitignore                   # ignore le cache de l'extension Fabric (.vfscache, .stubs, dossier GUID…)
-├── README.md                    # ce fichier — le processus
+│   ├── nb_city_safety.ipynb         # notebook médaillon (Bronze→Silver→Gold)
+│   ├── nb_city_safety_ui.ipynb      # notebook créé depuis l'UI (variante recommandée)
+│   └── ppl_load_city_safety/        # data pipeline planifié (activité Notebook)
+├── .gitignore                       # ignore le cache de l'extension Fabric (.vfscache, .stubs, dossier GUID…)
+├── README.md                        # ce fichier — le processus
 └── Mode_operatoire_Fabric_VSCode_Copilot_GitHub.md   # manuel détaillé + CI/CD
 ```
 
