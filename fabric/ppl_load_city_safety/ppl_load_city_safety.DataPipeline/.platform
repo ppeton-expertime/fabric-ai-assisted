@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "DataPipeline",
+    "displayName": "ppl_load_city_safety"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "4849a8e6-74dd-a7eb-44ec-e49ea1fbc8cd"
+  }
+}
